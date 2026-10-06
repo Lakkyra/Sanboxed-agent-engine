@@ -1,0 +1,224 @@
+import logging
+import time
+from rag.graph.state import RAGGraphState
+from rag.vector_store.qdrant_manager import QdrantManager
+from qdrant_client import models
+from typing import List, Optional
+
+logging.basicConfig(level=logging.INFO)
+import structlog
+logger = structlog.get_logger(__name__)
+
+
+def _invoke_with_retry(retriever, question: str):
+    """
+    Invoke retriever with exponential backoff + jitter for 429 RESOURCE_EXHAUSTED.
+
+    Two-layer retry strategy (per Google's recommendation):
+      Layer 1 — SDK: GoogleGenerativeAIEmbeddings(max_retries=6) in QdrantManager
+      Layer 2 — Here: outer retry with jitter for bursts that exhaust the SDK retries.
+
+    Uses tenacity if available, falls back to manual backoff.
+    """
+    try:
+        from tenacity import (
+            retry, stop_after_attempt, wait_exponential_jitter,
+            retry_if_exception_message, before_sleep_log
+        )
+
+        @retry(
+            retry=retry_if_exception_message(match=r".*(429|RESOURCE_EXHAUSTED|resource exhausted).*"),
+            stop=stop_after_attempt(4),
+            wait=wait_exponential_jitter(initial=5, max=60, jitter=3),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+            reraise=True,
+        )
+        def _do():
+            return retriever.invoke(question)
+
+        return _do()
+
+    except ImportError:
+        # Fallback: simple manual backoff if tenacity not installed
+        delay = 5
+        for attempt in range(1, 5):
+            try:
+                return retriever.invoke(question)
+            except Exception as e:
+                err = str(e)
+                is_rate_limit = "429" in err or "RESOURCE_EXHAUSTED" in err
+                if is_rate_limit and attempt < 4:
+                    logger.warning(
+                        f"⏳ Google 429 (attempt {attempt}/4). Retrying in {delay}s..."
+                    )
+                    time.sleep(delay)
+                    delay = min(delay * 2, 60)
+                else:
+                    raise
+
+
+class RetrievalNode:
+    """
+    The 'Retriever' node responsible for fetching relevant documents.
+    Implements Similarity Search with optional file-level filtering.
+    """
+
+    def __init__(self):
+        self.qdrant_manager = QdrantManager()
+        self.vector_store = self.qdrant_manager.get_vector_store()
+
+    def retrieve(self, state: RAGGraphState) -> RAGGraphState:
+        """
+        Retrieves documents based on the current question.
+
+        File filtering uses metadata.source, which requires a Qdrant payload
+        index — created automatically in QdrantManager.ensure_collection().
+        Without the index, Qdrant Cloud returns:
+          400 "Index required but not found for metadata.source [keyword]"
+        """
+        question = state["question"]
+        logger.info(f"Retrieving for question: {question}")
+
+        search_strategy = "similarity"
+        logger.info(f"   🔍 Search: [strategy={search_strategy}] [k=5]")
+
+        search_kwargs = {"k": 5}
+
+        # ── TENANCY GUARD: user_id is a MANDATORY filter ──────────────────────
+        # Without it, similarity search returns EVERY user's chunks. Refuse.
+        user_id = state.get("user_id")
+        if not user_id:
+            logger.error("🔒 RAG retrieve called without user_id — refusing (tenancy guard)")
+            return {**state, "documents": []}
+
+        must_conditions = [
+            models.FieldCondition(
+                key="metadata.user_id",
+                match=models.MatchValue(value=user_id),
+            )
+        ]
+        # Optional file-level narrowing by UUID (unique per upload).
+        selected_file_ids = state.get("selected_file_ids")
+        if selected_file_ids and isinstance(selected_file_ids, list) and len(selected_file_ids) > 0:
+            logger.info(f"   🛡️ File Filter (by UUID): {selected_file_ids}")
+            must_conditions.append(
+                models.FieldCondition(
+                    key="metadata.file_id",
+                    match=models.MatchAny(any=selected_file_ids),
+                )
+            )
+        search_kwargs["filter"] = models.Filter(must=must_conditions)
+
+        retriever = self.vector_store.as_retriever(
+            search_type=search_strategy,
+            search_kwargs=search_kwargs
+        )
+
+        try:
+            # Retry handles Google 429 RESOURCE_EXHAUSTED (two-layer defence)
+            documents = _invoke_with_retry(retriever, question)
+            logger.info(f"   ✅ Retrieved {len(documents)} documents.")
+
+            return {
+                "question": question,
+                "documents": documents,
+                "generation": state.get("generation"),
+                "web_search_needed": False,
+                "hallucination_count": state.get("hallucination_count", 0),
+                "retry_count": state.get("retry_count", 0)
+            }
+
+        except Exception as e:
+            logger.error(f"Retrieval failed: {str(e)}")
+            return {
+                **state,
+                "documents": []
+            }
+
+async def parallel_retrieve_node(state: RAGGraphState) -> RAGGraphState:
+    """
+    Runs Qdrant vector search and TinyFish web search in parallel.
+    Merges results, deduplicates by content hash.
+    Falls back gracefully if either source fails.
+
+    WHY asyncio.gather with return_exceptions=True:
+        If web search is down or key is missing, we still get Qdrant results.
+        The exception is caught per-source, not globally.
+    """
+    import asyncio
+    import hashlib
+    from langchain_core.documents import Document
+
+    question = state["question"]
+    selected_file_ids = state.get("selected_file_ids")
+    user_id = state.get("user_id")
+
+    # ── Task 1: Qdrant vector search ─────────────────────────────
+    async def run_qdrant():
+        node = RetrievalNode()
+        # Use asyncio.to_thread because retrieve() is synchronous.
+        # user_id MUST be forwarded here — RetrievalNode.retrieve()'s own
+        # tenancy guard refuses to search without it, and this sub-state is
+        # built fresh (not **state), so omitting it silently zeroed out
+        # vector search on every call regardless of what the outer graph
+        # state actually carried. Confirmed live: this was the real root
+        # cause of "No documents after parallel retrieval" even after
+        # routes/rag_routes.py was fixed to pass user_id into the graph.
+        result_state = await asyncio.to_thread(node.retrieve, {
+            "question": question,
+            "selected_file_ids": selected_file_ids,
+            "user_id": user_id,
+            "documents": [], "generation": None,
+            "web_search_needed": False,
+            "hallucination_count": 0, "retry_count": 0, "messages": []
+        })
+        return result_state.get("documents", [])
+
+    # ── Task 2: TinyFish web search ───────────────────────────────
+    async def run_web_search():
+        from rag.tools.web_search import search_web
+        try:
+            return await search_web(question, max_results=3)
+        except Exception as e:
+            logger.warning(f"Parallel web search failed: {e}")
+            return []
+
+    # ── Run both in parallel ──────────────────────────────────────
+    qdrant_docs, web_docs = await asyncio.gather(
+        run_qdrant(),
+        run_web_search(),
+        return_exceptions=True
+    )
+
+    # Handle exceptions from gather
+    if isinstance(qdrant_docs, Exception):
+        logger.error(f"Qdrant retrieval failed in parallel mode: {qdrant_docs}")
+        qdrant_docs = []
+    if isinstance(web_docs, Exception):
+        logger.warning(f"Web search failed in parallel mode: {web_docs}")
+        web_docs = []
+
+    # ── Merge and deduplicate ─────────────────────────────────────
+    all_docs = list(qdrant_docs) + list(web_docs)
+
+    seen_hashes = set()
+    unique_docs = []
+    for doc in all_docs:
+        content_hash = hashlib.md5(doc.page_content[:200].encode()).hexdigest()
+        if content_hash not in seen_hashes:
+            seen_hashes.add(content_hash)
+            unique_docs.append(doc)
+
+    logger.info(
+        f"Parallel retrieval: {len(qdrant_docs)} vector + {len(web_docs)} web = "
+        f"{len(unique_docs)} unique docs"
+    )
+
+    return {
+        **state,
+        "question": question,
+        "documents": unique_docs,
+        "web_search_needed": False,   # Already did web search in parallel
+        "hallucination_count": state.get("hallucination_count", 0),
+        "retry_count": state.get("retry_count", 0),
+    }
