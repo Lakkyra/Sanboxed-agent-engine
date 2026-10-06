@@ -1,0 +1,143 @@
+"""
+HistoryService — loads conversation history from MongoDB with Redis caching.
+
+Cache key format : history:{conversation_id}
+Cache TTL        : 1800 seconds (30 minutes)
+Cache invalidation: called by ChatService after saving the AI response
+
+WHY 30-minute TTL: Active conversations are cached; idle ones expire naturally.
+WHY cache-then-DB: MongoDB round-trip is ~20-100ms. For a streaming chat,
+                   loading history before each turn adds measurable latency.
+"""
+
+import json
+import logging
+from typing import Optional
+from datetime import datetime
+
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+
+from core.database import messages_collection
+from core.cache import cache_get, cache_set, cache_delete
+
+import structlog
+logger = structlog.get_logger(__name__)
+
+HISTORY_CACHE_TTL = 1800   # 30 minutes
+HISTORY_CACHE_PREFIX = "history"
+MAX_HISTORY_MESSAGES = 30  # Keep last 30 messages for context
+
+
+def _serialize_messages(messages: list[BaseMessage]) -> list[dict]:
+    """Convert LangChain message objects to JSON-serializable dicts."""
+    serialized = []
+    for msg in messages:
+        entry = {
+            "role": "human" if isinstance(msg, HumanMessage) else "ai",
+        }
+        # Content can be str or list of content parts (multimodal)
+        if isinstance(msg.content, str):
+            entry["content"] = msg.content
+        elif isinstance(msg.content, list):
+            entry["content"] = msg.content   # store as-is (already JSON-serializable)
+        serialized.append(entry)
+    return serialized
+
+
+def _deserialize_messages(serialized: list[dict]) -> list[BaseMessage]:
+    """Rebuild LangChain message objects from cached dicts."""
+    messages = []
+    for entry in serialized:
+        content = entry["content"]
+        if entry["role"] == "human":
+            messages.append(HumanMessage(content=content))
+        else:
+            messages.append(AIMessage(content=content))
+    return messages
+
+
+class HistoryService:
+
+    @staticmethod
+    async def get_history(
+        conversation_id: str,
+        user_id: str,
+        exclude_msg_id=None        # ObjectId of the just-inserted user message
+    ) -> list[BaseMessage]:
+        """
+        Returns conversation history as LangChain message objects.
+        Tries Redis first, falls back to MongoDB.
+        """
+        cache_key = f"{HISTORY_CACHE_PREFIX}:{conversation_id}"
+
+        # ── Try Redis cache ──────────────────────────────────
+        try:
+            cached = await cache_get(cache_key)
+            if cached and isinstance(cached, list):
+                logger.debug(f"History cache HIT for {conversation_id}")
+                return _deserialize_messages(cached)
+        except Exception as e:
+            logger.warning(f"Redis cache read failed (falling back to DB): {e}")
+
+        # ── Cache miss: load from MongoDB ────────────────────
+        logger.debug(f"History cache MISS for {conversation_id}, loading from MongoDB")
+
+        query = {
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+            # A response replaced via Retry is tombstoned, not deleted (see
+            # ChatService.retry) — it must never re-enter the agent's context,
+            # or the model would see both the discarded answer and its
+            # replacement to the same prompt. Cheap: the compound index
+            # already narrowed this to one conversation's messages, so this is
+            # just a post-filter over a few dozen docs. `$ne: True` matches
+            # documents that lack the field at all, so no backfill is needed.
+            "superseded": {"$ne": True},
+        }
+        if exclude_msg_id is not None:
+            query["_id"] = {"$ne": exclude_msg_id}
+
+        # Sort DESCENDING to take the MOST RECENT MAX_HISTORY_MESSAGES from the
+        # cursor, then reverse back to chronological order for the LLM. The
+        # previous ascending sort + to_list(N) took the OLDEST N messages
+        # instead — for any conversation past 30 stored messages, the agent's
+        # history was silently frozen at the first ~15 exchanges forever,
+        # regardless of how long the conversation continued. Confirmed via a
+        # direct 35-message probe: returned messages 0-29, not 5-34.
+        cursor = messages_collection.find(query).sort("timestamp", -1)
+        stored = await cursor.to_list(length=MAX_HISTORY_MESSAGES)
+        stored.reverse()
+
+        messages = []
+        for msg in stored:
+            text_content = msg.get("content", "")
+            
+            # Reconstruct the sandbox note for historical messages
+            if msg.get("attachments"):
+                file_list = ", ".join(a.get('sandbox_path', f"uploads/{a.get('original_name', 'file')}") for a in msg["attachments"])
+                note = f"\n\n[Uploaded file(s) available in your sandbox at: {file_list}]"
+                text_content += note
+
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=text_content))
+            else:
+                messages.append(AIMessage(content=msg.get("content", "")))
+
+        # ── Write to Redis for next request ──────────────────
+        try:
+            await cache_set(cache_key, _serialize_messages(messages), ttl_seconds=HISTORY_CACHE_TTL)
+        except Exception as e:
+            logger.warning(f"Redis cache write failed: {e}")
+
+        return messages
+
+    @staticmethod
+    async def invalidate(conversation_id: str) -> None:
+        """
+        Called after saving the AI response to force a fresh DB read next turn.
+        Without this, the cached history won't include the just-saved AI message.
+        """
+        try:
+            await cache_delete(f"{HISTORY_CACHE_PREFIX}:{conversation_id}")
+        except Exception as e:
+            logger.warning(f"Cache invalidation failed for {conversation_id}: {e}")
