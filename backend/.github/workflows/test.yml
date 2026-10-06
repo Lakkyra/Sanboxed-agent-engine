@@ -1,0 +1,80 @@
+name: Backend tests
+
+# Tests-only, no deploy. Deployment stays exactly as it is today: manual
+# SSH/tar/docker-build/swap on the production box, deliberately unchanged
+# here — see SESSION_HANDOFF.md if that's revisited later.
+on:
+  push:
+    branches: ["main"]        # only main -- feature branches don't trigger this
+  pull_request:
+    branches: ["main"]        # still checks PRs targeting main before merge
+  workflow_dispatch:   # lets you (or `gh workflow run test.yml`) trigger a re-run manually
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Run tests directly in backend directory with root requirements.txt
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # matches the production Dockerfile's base image
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # This suite hits the real dev Mongo/Redis/Qdrant/OmniRoute — same as
+      # every local run this session (conftest.py loads backend/.env for
+      # local dev; here the equivalent values come from repo secrets
+      # instead). Not mocked deliberately: mocking would test something
+      # other than what actually breaks in production. See
+      # tests/test_credit_service.py's own docstring for why the FEW tests
+      # that do mock do so as a deliberate exception, not the norm.
+      #
+      # test_integration_live.py is excluded — it's explicitly documented
+      # (CLAUDE.md) as a separate, heavier live-LLM suite, not part of the
+      # normal regression gate.
+      - name: Run tests
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          LLAMA_CLOUD_API_KEY: ${{ secrets.LLAMA_CLOUD_API_KEY }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          QDRANT_COLLECTION: ${{ vars.QDRANT_COLLECTION }}
+          CLOUDINARY_CLOUD_NAME: ${{ vars.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          OMNIROUTE_BASE_URL: ${{ secrets.OMNIROUTE_BASE_URL }}
+          OMNIROUTE_API_KEY: ${{ secrets.OMNIROUTE_API_KEY }}
+          SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          CARTESIA_API_KEY: ${{ secrets.CARTESIA_API_KEY }}
+          VOICE_STT_PROVIDER: ${{ vars.VOICE_STT_PROVIDER }}
+          VOICE_TTS_PROVIDER: ${{ vars.VOICE_TTS_PROVIDER }}
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+          ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+          WORKSPACE_ROOT: /tmp/agentx_workspace_ci
+          # Deliberately NOT set: SANDBOX_EXECUTOR_MODE. Stays unset ->
+          # defaults to "local" (see utils/sandbox_client.py), so CI never
+          # depends on the sandbox host being reachable from a GitHub-hosted
+          # runner (it isn't — that host's security group only admits the
+          # real backend's IP, by design, see TIER2_SANDBOX_PLAN.md).
+        # `python -m pytest`, not bare `pytest`: -m prepends the current
+        # directory to sys.path, which is how services/core/etc. resolve as
+        # importable at all (this repo has no top-level package __init__,
+        # and there's no pytest.ini pythonpath config) -- matches the exact
+        # invocation used for every local run this session. Confirmed live:
+        # bare `pytest` failed 2 of 3 test files with
+        # "ModuleNotFoundError: No module named 'services'".
+        run: python -m pytest -q --ignore=tests/test_integration_live.py
