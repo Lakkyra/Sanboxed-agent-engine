@@ -1,0 +1,465 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   AgentX design tokens
+   Warm-neutral paper (light) / cool graphite (dark).
+   Two accents with fixed meanings, used consistently everywhere:
+     --accent  (jade)   = the product / a capability YOU enabled
+     --violet           = the agent's own machinery (sandbox, skills)
+   Every legacy variable name is preserved so components that were
+   never touched by the redesign keep working — the values are just
+   retuned. New tokens are additive.
+   ============================================================ */
+
+@layer base {
+    /* Light mode (default) */
+    :root {
+        /* — legacy names, retuned — */
+        --bg-primary: #fbfaf9;
+        --bg-secondary: #f4f2ef;
+        --bg-sidebar: #f6f4f1;
+        --text-primary: #14161a;
+        --text-secondary: #63676e;
+        --border-color: #e7e3de;
+        --accent: #0d9a72;
+        --accent-hover: #0b8663;
+        --input-bg: #f4f2ef;
+        --hover-bg: #efece8;
+
+        /* — additive — */
+        --surface: #ffffff;
+        --surface-2: #f4f2ef;
+        --surface-3: #edeae6;
+        --text-tertiary: #9a9ea6;
+        --border-strong: #d9d4cd;
+        --accent-ink: #ffffff;
+        --accent-soft: rgba(13, 154, 114, .10);
+        --accent-line: rgba(13, 154, 114, .30);
+        --violet: #6a56cf;
+        --violet-soft: rgba(106, 86, 207, .09);
+        --violet-line: rgba(106, 86, 207, .25);
+        --danger: #c2410c;
+        --amber: #b4740c;
+
+        /* the console stays dark in BOTH themes — it reads as a machine surface */
+        --term-bg: #101318;
+        --term-fg: #c9d2dd;
+        --term-dim: #6f7c8c;
+
+        --shadow-1: 0 1px 2px rgba(16, 18, 22, .04), 0 1px 1px rgba(16, 18, 22, .03);
+        --shadow-2: 0 4px 16px -4px rgba(16, 18, 22, .10), 0 1px 2px rgba(16, 18, 22, .05);
+        --shadow-3: 0 18px 48px -12px rgba(16, 18, 22, .18), 0 2px 6px rgba(16, 18, 22, .06);
+        --ring: 0 0 0 3px rgba(13, 154, 114, .14);
+        --glass: rgba(251, 250, 249, .72);
+        --grid: rgba(20, 22, 26, .05);
+    }
+
+    /* Dark mode */
+    .dark {
+        --bg-primary: #0c0d10;
+        --bg-secondary: #1a1d22;
+        --bg-sidebar: #090a0c;
+        --text-primary: #e9eaed;
+        --text-secondary: #989ea7;
+        --border-color: #202329;
+        --accent: #2ed3a0;
+        --accent-hover: #45dcae;
+        --input-bg: #1a1d22;
+        --hover-bg: #1f2329;
+
+        --surface: #131519;
+        --surface-2: #1a1d22;
+        --surface-3: #22262c;
+        --text-tertiary: #6a707a;
+        --border-strong: #2c3038;
+        --accent-ink: #04231a;
+        --accent-soft: rgba(46, 211, 160, .11);
+        --accent-line: rgba(46, 211, 160, .28);
+        --violet: #a493ff;
+        --violet-soft: rgba(164, 147, 255, .11);
+        --violet-line: rgba(164, 147, 255, .26);
+        --danger: #f0845c;
+        --amber: #e0a44a;
+
+        --term-bg: #0a0c10;
+        --term-fg: #c9d2dd;
+        --term-dim: #6f7c8c;
+
+        --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+        --shadow-2: 0 6px 20px -6px rgba(0, 0, 0, .55), 0 1px 2px rgba(0, 0, 0, .4);
+        --shadow-3: 0 24px 60px -16px rgba(0, 0, 0, .7), 0 2px 8px rgba(0, 0, 0, .5);
+        --ring: 0 0 0 3px rgba(46, 211, 160, .16);
+        --glass: rgba(12, 13, 16, .72);
+        --grid: rgba(255, 255, 255, .035);
+    }
+
+    body {
+        @apply antialiased;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        letter-spacing: -0.011em;
+        font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+    }
+
+    * {
+        border-color: var(--border-color);
+    }
+}
+
+@layer components {
+
+    /* ---------- buttons ---------- */
+    .btn-primary {
+        @apply px-4 py-2 rounded-xl font-medium transition-all duration-150;
+        background-color: var(--accent);
+        color: var(--accent-ink);
+        box-shadow: 0 4px 16px -5px var(--accent-line);
+    }
+
+    .btn-primary:hover {
+        filter: brightness(1.06);
+        transform: translateY(-1px);
+    }
+
+    .btn-primary:active {
+        transform: translateY(0);
+    }
+
+    .btn-secondary {
+        @apply px-4 py-2 rounded-xl font-medium transition-all duration-150 border;
+        background-color: var(--surface);
+        color: var(--text-primary);
+        border-color: var(--border-color);
+        box-shadow: var(--shadow-1);
+    }
+
+    .btn-secondary:hover {
+        border-color: var(--border-strong);
+        box-shadow: var(--shadow-2);
+        transform: translateY(-1px);
+    }
+
+    /* ---------- inputs ---------- */
+    .input-minimal,
+    .input-field {
+        @apply w-full px-4 py-3 rounded-xl border outline-none transition-all;
+        background-color: var(--surface);
+        border-color: var(--border-color);
+        color: var(--text-primary);
+    }
+
+    .input-minimal:focus,
+    .input-field:focus {
+        border-color: var(--accent-line);
+        box-shadow: var(--ring);
+    }
+
+    .input-minimal::placeholder,
+    .input-field::placeholder {
+        color: var(--text-tertiary);
+    }
+
+    /* ---------- surfaces ---------- */
+    .card-minimal {
+        @apply rounded-2xl border p-6;
+        background-color: var(--surface);
+        border-color: var(--border-color);
+        box-shadow: var(--shadow-1);
+    }
+
+    .sidebar-item {
+        @apply flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors text-sm;
+        color: var(--text-primary);
+    }
+
+    .sidebar-item:hover {
+        background-color: var(--hover-bg);
+    }
+
+    .sidebar-item.active {
+        background-color: var(--hover-bg);
+    }
+
+    /* ---------- composer / popover primitives ---------- */
+    .ax-pop {
+        background-color: var(--surface);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        box-shadow: var(--shadow-3);
+        animation: axPopIn .18s cubic-bezier(.2, .9, .25, 1);
+    }
+
+    .ax-pop-label {
+        @apply text-[10.5px] font-semibold uppercase px-2.5 pt-2.5 pb-1.5;
+        letter-spacing: .06em;
+        color: var(--text-tertiary);
+    }
+
+    .ax-pop-item {
+        @apply flex items-center gap-2.5 px-2.5 py-2 rounded-[10px] cursor-pointer transition-colors text-left w-full;
+    }
+
+    .ax-pop-item:hover {
+        background-color: var(--hover-bg);
+    }
+
+    /* control chip in the composer's control row */
+    .ax-cbtn {
+        @apply flex items-center gap-1.5 h-8 px-2.5 rounded-[10px] text-[12.8px] font-medium transition-colors;
+        color: var(--text-secondary);
+        border: 1px solid transparent;
+    }
+
+    .ax-cbtn:hover:not(:disabled) {
+        background-color: var(--hover-bg);
+        color: var(--text-primary);
+    }
+
+    .ax-cbtn:disabled {
+        opacity: .45;
+        cursor: not-allowed;
+    }
+
+    .ax-cbtn.is-on {
+        background-color: var(--accent-soft);
+        color: var(--accent);
+        border-color: var(--accent-line);
+    }
+
+    .ax-cbtn.is-open {
+        background-color: var(--hover-bg);
+        color: var(--text-primary);
+        border-color: var(--border-strong);
+    }
+
+    /* small toggle switch */
+    .ax-switch {
+        @apply relative flex-none rounded-full transition-colors;
+        width: 32px;
+        height: 18px;
+        background-color: var(--surface-3);
+        border: 1px solid var(--border-color);
+    }
+
+    .ax-switch::after {
+        content: "";
+        position: absolute;
+        top: 1px;
+        left: 1px;
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        background: var(--surface);
+        box-shadow: var(--shadow-1);
+        transition: transform .2s cubic-bezier(.2, .9, .25, 1);
+    }
+
+    .ax-switch.is-on {
+        background-color: var(--accent);
+        border-color: transparent;
+    }
+
+    .ax-switch.is-on::after {
+        transform: translateX(14px);
+        background: #fff;
+    }
+}
+
+/* ---------- scrollbars ---------- */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+    background-clip: content-box;
+    border: 3px solid transparent;
+}
+
+/* ---------- motion ---------- */
+
+/* Timeline: gentle fade + slide-in for each new agent step as it streams in,
+   so steps ease into place instead of snapping. */
+@keyframes timelineNodeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.timeline-node-in {
+    animation: timelineNodeIn 0.25s ease-out;
+}
+
+@keyframes axPopIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* indeterminate progress rail on the composer while the agent is running */
+@keyframes axRail {
+    0% {
+        transform: translateX(-110%);
+    }
+
+    100% {
+        transform: translateX(370%);
+    }
+}
+
+.ax-rail {
+    height: 2px;
+    width: 38%;
+    background: linear-gradient(90deg, transparent, var(--violet), transparent);
+    animation: axRail 1.5s cubic-bezier(.4, 0, .6, 1) infinite;
+}
+
+/* Bouncing dots inside the voice/dictation "Stop" pill — "something is
+   actively happening" cue living in the button itself. */
+@keyframes axStopDot {
+
+    0%,
+    80%,
+    100% {
+        opacity: 0.35;
+        transform: translateY(0);
+    }
+
+    40% {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+}
+
+.ax-stopdot {
+    background: currentColor;
+    animation: axStopDot 1s ease-in-out infinite;
+}
+
+/* Ambient glow shown above the composer while full voice mode is active —
+   a soft radial light bleeding up into the chat area, matching the
+   reference's cool blue-white ambient treatment. Sits BEHIND the composer
+   (negative z-index) and extends upward past the top of its positioning
+   container via a large negative top offset + height, rather than being
+   confined to the composer's own box. */
+@keyframes axVoiceGlowPulse {
+
+    0%,
+    100% {
+        opacity: 0.55;
+        transform: translateX(-50%) scale(1);
+    }
+
+    50% {
+        opacity: 0.85;
+        transform: translateX(-50%) scale(1.08);
+    }
+}
+
+.ax-voice-glow {
+    top: -180px;
+    width: 520px;
+    height: 220px;
+    z-index: 0;
+    background: radial-gradient(ellipse 50% 50% at 50% 100%,
+            rgba(96, 165, 250, 0.35) 0%,
+            rgba(96, 165, 250, 0.16) 40%,
+            rgba(96, 165, 250, 0) 75%);
+    filter: blur(4px);
+    animation: axVoiceGlowPulse 3.2s ease-in-out infinite;
+    transform: translateX(-50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ax-voice-glow {
+        animation: none;
+    }
+}
+
+/* "currently running" label sweep */
+@keyframes axSweep {
+    0% {
+        background-position: 120% 0;
+    }
+
+    100% {
+        background-position: -120% 0;
+    }
+}
+
+.ax-shimmer {
+    background: linear-gradient(90deg, var(--text-tertiary) 20%, var(--text-primary) 45%, var(--text-tertiary) 70%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: axSweep 2.2s linear infinite;
+}
+
+/* pulsing dot for an in-flight tool call */
+@keyframes axPing {
+
+    0% {
+        transform: scale(.6);
+        opacity: .6;
+    }
+
+    80%,
+    100% {
+        transform: scale(1.5);
+        opacity: 0;
+    }
+}
+
+.ax-pulse {
+    position: relative;
+}
+
+.ax-pulse::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    opacity: .5;
+    animation: axPing 1.6s cubic-bezier(0, 0, .2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .timeline-node-in,
+    .ax-rail,
+    .ax-shimmer,
+    .ax-pulse::after,
+    .ax-pop,
+    .ax-stopdot {
+        animation: none;
+    }
+}
