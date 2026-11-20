@@ -40,9 +40,15 @@ def get_llm(model_name: str) -> ChatOpenAI:
     Creates it on first call. Thread-safe for async (single event loop).
     """
     if model_name not in _registry:
-        logger.info(f"LLM registry: creating instance for {model_name} via {OMNIROUTE_BASE_URL}")
+        # Translate OmniRoute model aliases when targeting Google's OpenAI API directly
+        actual_model = model_name
+        if "generativelanguage.googleapis.com" in OMNIROUTE_BASE_URL:
+            if actual_model.startswith("antigravity/") or "gemini-3.7" in actual_model or actual_model not in ["gemini-3.5-flash", "gemini-3.1-flash-lite"]:
+                actual_model = "gemini-3.5-flash"
+
+        logger.info(f"LLM registry: creating instance for {model_name} (actual model: {actual_model}) via {OMNIROUTE_BASE_URL}")
         _registry[model_name] = ChatOpenAI(
-            model=model_name,
+            model=actual_model,
             temperature=0.7,
             max_retries=2,
             streaming=True,

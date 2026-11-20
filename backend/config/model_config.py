@@ -17,6 +17,17 @@ class ModelConfig:
     # Available models with their capabilities.
     # `price_in`/`price_out` are USD per 1M tokens (0 => unknown/not billed).
     MODELS: Dict[str, Dict[str, Any]] = {
+        "gemini-3.5-flash": {
+            "name": "Gemini 3.5 Flash",
+            "description": "Fast, multimodal, tool-capable official Gemini model",
+            "supports_images": True,
+            "supports_video": True,
+            "supports_audio": True,
+            "max_tokens": 8192,
+            "context_window": 1000000,
+            "price_in": 1.50,
+            "price_out": 9.00,
+        },
         "antigravity/gemini-3.7-flash-medium": {
             "name": "Gemini 3.7 Flash (Medium)",
             "description": "Default model via OmniRoute — fast, multimodal, tool-capable",
@@ -25,17 +36,6 @@ class ModelConfig:
             "supports_audio": True,
             "max_tokens": 8192,
             "context_window": 1000000,
-            # Carried over from Gemini 3.5 Flash's official pricing, USD per
-            # 1M tokens — NOT re-verified for 3.7 specifically (no official
-            # 3.7 pricing page found at migration time, 2026-09-01; OmniRoute's
-            # gateway itself reports $0 for every call regardless of model,
-            # same as it always has, so this number is still the only thing
-            # that turns real token counts into a real cost). If it's wrong,
-            # it's wrong in the direction of the credit system still actually
-            # enforcing a cap on spend, which is safer than the alternative:
-            # setting this to 0.0 would make every turn look free and quietly
-            # disable the free-tier credit cap entirely, not just misprice it.
-            # Replace with the real number once Google publishes it.
             "price_in": 1.50,
             "price_out": 9.00,
         },
