@@ -3,19 +3,26 @@ import api from './api';
 export const authService = {
     async signup(name, email, password) {
         const response = await api.post('/auth/signup', { name, email, password });
-        // No need to store token, it's in the cookie
+        if (response.data?.token) {
+            localStorage.setItem('auth_token', response.data.token);
+        }
         return response.data;
     },
 
     async login(email, password) {
         const response = await api.post('/auth/login', { email, password });
-        // No need to store token, it's in the cookie
+        if (response.data?.token) {
+            localStorage.setItem('auth_token', response.data.token);
+        }
         return response.data;
     },
 
     async logout() {
-        await api.post('/auth/logout');
-        // Clear any local user data if we were caching it
+        try {
+            await api.post('/auth/logout');
+        } finally {
+            localStorage.removeItem('auth_token');
+        }
     },
 
     async getCurrentUser() {

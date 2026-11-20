@@ -1,6 +1,14 @@
 import api from './api';
 import { API_BASE_URL } from '../config';
 
+function _authHeaders(extra = {}) {
+    const token = localStorage.getItem('auth_token');
+    return {
+        ...extra,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+}
+
 // Shared by sendMessageStream/sendMessageStreamMultimodal/resumeStream — all
 // three consume the identical SSE wire format (see backend services/chat_service.py's
 // turn_manager.publish() calls), so the parsing loop only needs to exist once.
@@ -80,9 +88,9 @@ export const chatService = {
     async sendMessageStream(message, conversationId = null, mcpServerIds = [], model = "antigravity/gemini-3.7-flash-medium", enabledTools = [], selectedFiles = [], onChunk, signal = undefined) {
         const response = await fetch(`${API_BASE_URL}/chat/stream`, {
             method: 'POST',
-            headers: {
+            headers: _authHeaders({
                 'Content-Type': 'application/json',
-            },
+            }),
             credentials: 'include',
             signal,
             body: JSON.stringify({
@@ -127,6 +135,7 @@ export const chatService = {
 
         const response = await fetch(`${API_BASE_URL}/chat/stream/multimodal`, {
             method: 'POST',
+            headers: _authHeaders(),
             credentials: 'include',
             signal,
             body: formData,
@@ -146,6 +155,7 @@ export const chatService = {
     async resumeStream(conversationId, onChunk, signal = undefined) {
         const response = await fetch(`${API_BASE_URL}/chat/${conversationId}/resume`, {
             method: 'GET',
+            headers: _authHeaders(),
             credentials: 'include',
             signal,
         });
@@ -175,7 +185,7 @@ export const chatService = {
     async retryMessage(conversationId, messageId, { model, enabledTools = [], mcpServerIds = [], selectedFiles = [] } = {}, onChunk, signal = undefined) {
         const response = await fetch(`${API_BASE_URL}/chat/${conversationId}/messages/${messageId}/retry`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: _authHeaders({ 'Content-Type': 'application/json' }),
             credentials: 'include',
             signal,
             body: JSON.stringify({

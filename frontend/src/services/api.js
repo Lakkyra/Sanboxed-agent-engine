@@ -9,6 +9,15 @@ const api = axios.create({
     withCredentials: true, // Enable sending cookies with requests
 });
 
+// Request interceptor to attach JWT token as fallback for cross-domain cookies
+api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+});
+
 // Response interceptor for API calls
 api.interceptors.response.use(
     (response) => response,

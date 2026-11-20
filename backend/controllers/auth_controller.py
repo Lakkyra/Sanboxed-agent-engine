@@ -50,11 +50,12 @@ class AuthController:
                     "email": user_data.email,
                     "is_admin": False
                 },
+                "token": access_token,
                 "message": "User created successfully"
             })
             
             # Set HTTP-only cookie
-            is_prod = os.getenv("ENVIRONMENT", "development") == "production"
+            is_prod = (os.getenv("ENVIRONMENT") == "production" or os.getenv("APP_ENV") == "production")
             response.set_cookie(
                 key="access_token",
                 value=access_token,
@@ -107,11 +108,12 @@ class AuthController:
                     "email": user["email"],
                     "is_admin": user.get("is_admin", False)
                 },
+                "token": access_token,
                 "message": "Login successful"
             })
             
             # Set HTTP-only cookie
-            is_prod = os.getenv("ENVIRONMENT", "development") == "production"
+            is_prod = (os.getenv("ENVIRONMENT") == "production" or os.getenv("APP_ENV") == "production")
             response.set_cookie(
                 key="access_token",
                 value=access_token,
